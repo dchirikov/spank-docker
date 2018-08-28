@@ -48,7 +48,7 @@ extern "C" int slurm_spank_init(spank_t spank, int ac, char *argv[]) {
       ptr++;
   }
   // Extra option from plugstack.conf is our runner
-  // Put it to opt_docker_additional_opts
+  // Put it to opt_derrer_additional_opts
   for (int i=0; i<ac; i++) {
     opt_docker_runner += argv[i];
     opt_docker_runner += " ";
@@ -74,21 +74,24 @@ extern "C" int slurm_spank_task_init_privileged(spank_t spank, int ac, char *arg
   auto rc = res.rc;
   auto out_err = res.data;
 
+  // FIXME
+  // We can't put anything to STDOUT or STDERR from spank
+  // So wil use dirty hack with slurm_error()
   if (out_err != "") {
-    slurm_error(out_err.c_str());
+    slurm_error("\n%s", out_err.c_str());
   }
 
   // Force exit. We are not going to allow SLURM proceed with user unput.
   // Job was running already
   exit(rc);
 
-  return 0;
+  return rc;
 }
 
 // Constructor
 DockerRunner::DockerRunner(
   spank_t sp, std::string runner, std::string name, std::string opts)
-  : _sp(sp), _name(name), _opts(opts)  {}
+  : _sp(sp), _name(name), _opts(opts), _runner(opt_docker_runner)  {}
 
 // Returns command user whants to run
 RetStr DockerRunner::_GetCmd() {
@@ -131,6 +134,21 @@ RetInt DockerRunner::_GetGID() {
   return {0, gid};
 }
 
+// Get environmental variables
+int DockerRunner::_GetEnv() {
+  const char **env;
+  auto err = spank_get_item(_sp, S_JOB_ENV, &env);
+  if (err != ESPANK_SUCCESS) {
+    slurm_error("Unable to get S_JOB_ENV");
+    return -1;
+  }
+  while (*env != NULL) {
+    _environ.push_back(*env);
+    env++;
+  }
+  return 0;
+}
+
 // Main runner
 RetStr DockerRunner::Run() {
   std::string cmd;
@@ -162,8 +180,55 @@ RetStr DockerRunner::Run() {
   if (rc != 0) {
     return {-1, ""};
   }
-  //slurm_error("%s|%d|%d", cmd.c_str(), uid, gid);
-  // TODO
-  // Now run docker wrapper
-  return {0, ""};
+  // Get environment
+  {
+    rc = _GetEnv();
+  }
+  if (rc != 0) {
+    return {-1, ""};
+  }
+  // Put tmp file with env variables
+  char tmpfilename[] = "/tmp/spank-doker-env.XXXXXX";
+  auto tmpfd = mkstemp(tmpfilename);
+  if (tmpfd == -1) {
+    slurm_error("Unable to create tmp file: ", tmpfilename);
+    return {-1, ""};
+  }
+  // Fill tmp file with variables
+  for (auto s : _environ) {
+    write(tmpfd, s.c_str(), s.length());
+    write(tmpfd, "\n", 1);
+  }
+  close(tmpfd);
+  // Run command
+  std::stringstream ss;
+  ss << _runner
+     << " --docker=\"" << _name << "\"" \
+     << " --cmd=\"" << cmd << "\"" \
+     << " --opts=\"" << _opts << "\"" \
+     << " --user=" << uid << ":" << gid
+     << " --envfile=" << tmpfilename;
+  auto exec_out = spank_exec(ss.str().c_str());
+  unlink(tmpfilename);
+  return exec_out;
+}
+
+RetStr spank_exec(const char* cmd) {
+    char buffer[128];
+    std::string result = "";
+    FILE* pipe = popen(cmd, "r");
+    if (!pipe) {
+      return {-1 ,"Unable to run command. popen() failed!"};
+    }
+    try {
+        while (!feof(pipe)) {
+            if (fgets(buffer, 128, pipe) != NULL)
+                result += buffer;
+        }
+    } catch (...) {
+        pclose(pipe);
+        return {-1 ,"Error while running command."};
+    }
+    int rc = pclose(pipe)/256;
+    return {rc, result};
 }

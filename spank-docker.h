@@ -23,6 +23,8 @@ extern "C" {
 }
 #include <string>
 #include <vector>
+#include <sstream>
+#include <iostream>
 #define OPT_DOCKER_NAME 0
 #define OPT_DOCKER_OPTS 1
 
@@ -62,8 +64,11 @@ public:
 private:
   spank_t _sp;
   std::string _runner, _name, _opts;
+  std::vector<std::string> _environ;
   RetStr _GetCmd();
   RetInt _GetUID();
   RetInt _GetGID();
-
+  int _GetEnv();
 };
+
+RetStr spank_exec(const char* cmd);
