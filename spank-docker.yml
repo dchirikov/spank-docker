@@ -1,0 +1,31 @@
+alowed_containers:
+- controller:5000/ubuntu-custom
+
+container_options:
+  "*":
+    allow_user_override: False
+    docker:
+      #      volumes:
+      #- /trinity:
+      #    bind: /trinity
+      #    mode: rw
+      network: host
+    scripts:
+    # available vars:
+    # {{ UID }}, {{ GID }}, {{ ENVFILE }}, {{ CMD }}
+    # {{ stdout_lines }} - output from previous script
+    - type: host
+      timeout: 30
+      script: |-
+        getent passwd {{ UID }}
+        getent group  {{ GID }}
+        getent passwd {{ UID }} | awk -F\: '{print $1}'
+    - type: container
+      script: |-
+        set -e
+        echo 'Port 8022' >> /etc/ssh/sshd_config
+        echo '     Port 8022' >> /etc/ssh/ssh_config
+        /usr/sbin/sshd
+        echo {{ stdout_lines[0] }} >> /etc/passwd
+        echo {{ stdout_lines[1] }} >> /etc/group
+        runuser {{  stdout_lines[2] }} -c "{{ CMD }}"
