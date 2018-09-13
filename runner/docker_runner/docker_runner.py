@@ -1,8 +1,10 @@
 import logging
+import socket
 import subprocess as sp
 from jinja2 import Environment
 import docker
 from threading import Timer
+import sys
 
 
 default_host_timeout = 30
@@ -50,6 +52,12 @@ class DockerRunner(object):
             'docker': '',
             'scripts': '',
         }
+        self.environ = self.read_envfile(args.envfile)
+
+    def read_envfile(self, envfile):
+        with open(envfile, 'ro') as f:
+            env = [e.strip() for e in f.readlines()]
+        return env
 
     def alter_options(self):
         # first get global parameters
@@ -159,8 +167,18 @@ class DockerRunner(object):
             #docker_opts['auto_remove'] = True
             docker_opts['remove'] = True
             docker_opts['tty'] = True
+            docker_opts['stderr'] = True
+            docker_opts['environment'] = self.environ
 
-            d = client.containers.run(**docker_opts)
-            print d
+            try:
+                d = client.containers.run(**docker_opts)
+            except docker.errors.ContainerError:
+                msg = "Host: {}; Error occured for: {}".format(
+                    socket.gethostname(),
+                    j2_vars['CMD']
+                )
+                self.log.error(msg)
+            else:
+                sys.stdout.write(d)
 
         return True

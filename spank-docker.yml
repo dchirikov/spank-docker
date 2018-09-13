@@ -5,10 +5,10 @@ container_options:
   "*":
     allow_user_override: False
     docker:
-      #      volumes:
-      #- /trinity:
-      #    bind: /trinity
-      #    mode: rw
+      volumes:
+        /trinity:
+          bind: "/trinity"
+          mode: rw
       network: host
     scripts:
     # available vars:
@@ -28,4 +28,4 @@ container_options:
         /usr/sbin/sshd
         echo {{ stdout_lines[0] }} >> /etc/passwd
         echo {{ stdout_lines[1] }} >> /etc/group
-        runuser {{  stdout_lines[2] }} -c "{{ CMD }}"
+        /sbin/runuser {{  stdout_lines[2] }} -c "{{ CMD }}"
